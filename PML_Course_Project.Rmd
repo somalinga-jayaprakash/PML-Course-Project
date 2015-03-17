@@ -1,0 +1,159 @@
+---
+title: "Practical Machine Learning - Course Project"
+author: "S C Jayaprakash"
+date: "Monday, March 16, 2015"
+output: html_document
+---
+
+### Executive Summary
+
+This analysis predicts the manner in which the exercise was done by applying machine learning algorithm to the Weight Lifting Exercise dataset available at http://groupware.les.inf.puc-rio.br/har.
+
+The random forest algorithm yielded a model with accuracy of 99.32% and out-of-sample error rate of 0.68% with the validation data set.
+
+### Data Set
+
+We will use below data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. 
+
+The training data :
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv 
+
+The test data :
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv 
+
+### Data Preprocessing
+
+
+```{r}
+library(caret)
+library(rpart)
+library(rpart.plot)
+library(randomForest)
+```
+
+### Download Data
+
+
+```{r}
+trainUrl <- "http://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+testUrl <- "http://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+trainFile <- "./data/pml-training.csv"
+testFile  <- "./data/pml-testing.csv"
+if (!file.exists("./data")) {
+  dir.create("./data")
+}
+if (!file.exists(trainFile)) {
+  download.file(trainUrl, destfile=trainFile)
+}
+if (!file.exists(testFile)) {
+  download.file(testUrl, destfile=testFile)
+}
+
+trainRaw <- read.csv("./data/pml-training.csv")
+testRaw <- read.csv("./data/pml-testing.csv")
+dim(trainRaw)
+dim(testRaw)
+```
+
+### Clean the data
+
+Clean the data and get rid of observations with missing values as well as some non-relevant variables.
+
+```{r}
+
+sum(complete.cases(trainRaw))
+
+# Remove columns that contain missing values (NA)
+
+trainRaw <- trainRaw[, colSums(is.na(trainRaw)) == 0]
+testRaw <- testRaw[, colSums(is.na(testRaw)) == 0] 
+
+# Remove columns that do not contribute much to the accelerometer measurements
+
+classe <- trainRaw$classe
+trainRemove <- grepl("^X|timestamp|window", names(trainRaw))
+trainRaw <- trainRaw[, !trainRemove]
+trainCleaned <- trainRaw[, sapply(trainRaw, is.numeric)]
+trainCleaned$classe <- classe
+testRemove <- grepl("^X|timestamp|window", names(testRaw))
+testRaw <- testRaw[, !testRemove]
+testCleaned <- testRaw[, sapply(testRaw, is.numeric)]
+
+```
+
+Cleaned training data set contains 19622 observations and 53 variables, while the testing data set contains 20 observations and 53 variables. 
+
+### Slice the data
+
+Split the cleaned training set into training data set (70%) and validation data set (30%). We will use the validation data set to conduct cross validation.
+
+```{r}
+set.seed(23368) # For reproducibile purpose
+inTrain <- createDataPartition(trainCleaned$classe, p=0.70, list=F)
+trainData <- trainCleaned[inTrain, ]
+testData <- trainCleaned[-inTrain, ]
+```
+
+### Data Modeling
+
+Fit a predictive model for activity recognition using Random Forest algorithm because it automatically selects important variables and is robust to correlated covariates & outliers in general. Use 5-fold cross validation when applying the algorithm.
+
+```{r}
+controlRf <- trainControl(method="cv", 5)
+modelRf <- train(classe ~ ., data=trainData, method="rf", trControl=controlRf, ntree=250)
+modelRf
+```
+
+Estimate the performance of the model on the validation data set.
+ 
+```{r}
+predictRf <- predict(modelRf, testData)
+confusionMatrix(testData$classe, predictRf)
+accuracy <- postResample(predictRf, testData$classe)
+accuracy
+oose <- 1 - as.numeric(confusionMatrix(testData$classe, predictRf)$overall[1])
+oose
+
+```
+
+
+The estimated accuracy of the model is 99.32% and the estimated out-of-sample error is 0.68%. 
+
+
+### Prediction for Test Data Set
+
+Apply the model to the original testing data set. 
+
+```{r}
+predictionResult <- predict(modelRf, testCleaned[, -length(names(testCleaned))])
+predictionResult
+```
+
+
+### Appendix: 
+
+Tree Visualisation
+
+```{r}
+treeModel <- rpart(classe ~ ., data=trainData, method="class")
+prp(treeModel) 
+
+```
+
+
+### Generate Files to Submit for Assignment
+
+The following function creates the files to answer the Prediction Assignment Submission:
+
+
+```{r}
+pml_write_files = function(x){
+  n = length(x)
+  for(i in 1:n){
+    filename = paste0("./data/output/problem_id_",i,".txt")
+    write.table(x[i],file=filename,quote=FALSE,row.names=FALSE,col.names=FALSE)
+  }
+}
+
+pml_write_files(predictionResult)
+```
